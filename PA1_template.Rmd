@@ -1,20 +1,162 @@
-# Reproducible Research: Peer Assessment 1
+---
+title: 'Reproducible Research: Peer Assessment 1'
+author: "Nikolas V"
+date: "17 August 2014"
+output: html_document
+---
 
+This page created to guide you through the analysis of the personal personal movement activity data as a subject of the reproducible research course assignment. 
+
+```{r setup}
+# set global chunk options: 
+library(knitr)
+library(ggplot2)
+library(plyr)
+library(scales)
+opts_chunk$set(cache=TRUE,cache.path = 'PA1_template_cache/', fig.path='figure/')
+```
 
 ## Loading and preprocessing the data
+Importing the data in R.
 
+
+```{r cache=TRUE}
+#Load the data and note the missing values
+setwd('~/Desktop/RepData_PeerAssessment1/')
+actdata<-read.csv("activity.csv",header=TRUE,sep=",")
+
+```
+
+View of the data as a first step
+```{r cache=TRUE}
+summary(actdata)
+```
+
+
+Change data format for easier analysis
+```{r cache=TRUE}
+# Format the date with POSIXct 
+actdata$date_new <- as.POSIXct( strptime(as.character(actdata$date), "%Y-%m-%d"))  
+
+# Add column giving the week of the day
+actdata$date_of_week<-as.factor(weekdays(as.Date(actdata$date_new)))
+
+# Create a factor variable with Weekday and Weekend
+actdata$date_type[actdata$date_of_week %in% c('Saturday','Sunday')]<-"Weekend"
+actdata$date_type[!(actdata$date_of_week %in% c('Saturday','Sunday'))]<-"Weekday"
+actdata$date_type<-as.factor(actdata$date_type)
+
+# Create a subset removing the NA entries from the steps
+actdata_non_na<-actdata[!is.na(actdata$steps),]
+summary(actdata_non_na)
+```
 
 
 ## What is mean total number of steps taken per day?
+To answer this question only the non NAs days used. The missing values been ignored for this part. Also a Time-Series figure been created to visualise the total steps per day.
+
+``` {r cache=TRUE}
+# Summarise the steps per day using ddply function
+daily_steps<- ddply(actdata_non_na, .(date_new), summarise, steps=sum(steps))
+```
+
+
+Activity:
+
+* Mean = `r format(round(mean(daily_steps$steps),2), scientific=F)` Steps
+* Median = `r format(round(median(daily_steps$steps),2), scientific=F)` Steps
+
+
+``` {r cache=TRUE ,fig.height=6, fig.width=14}
+
+ggplot(daily_steps,aes(as.Date(date_new),steps))+
+        scale_x_date(name="Date", breaks = date_breaks("day"))+
+        geom_bar(stat='identity')+
+        ggtitle("Daily Total Number of Steps")+
+        ylab("Total Number of Steps")+
+        theme_bw()+
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+        
+
+```
 
 
 
 ## What is the average daily activity pattern?
 
+To understand the average daily activity pattern the following 5 minutes time series chart will depict the average steps taken accross all the days for the same interval.
+
+```{r cache=TRUE}
+day_interval<- ddply(actdata_non_na, .(interval), summarise, steps=mean(steps))
+ggplot(day_interval,aes(interval,steps))+
+        geom_line()+
+        ggtitle("Daily Activity Pattern")+
+        xlab("5-minute interval")+
+        ylab("The average number of steps")+
+        theme_bw()
+```
+
+At the `r day_interval$interval[which.max(day_interval$steps)]` interval is the average maximum steps accross all the active days.
 
 
 ## Imputing missing values
 
+As a first step we need to calculate the total number of missing values in the activity dataset
+```{r}
+sum(is.na(actdata$steps))
+```
+
+Impute the missing values with the median of the specific time interval. Create a new dataset with the same size as the original and with imputed values instead of NAs.
+
+```{r cache=TRUE}
+
+# Create a median subset for every interval
+interval_median<- ddply(actdata_non_na, .(interval), summarise, steps=median(steps))
+
+colnames(interval_median)[2] <- "median_steps"
+
+# Join and sort the original dataset with the interval median dataset
+impute_data <- arrange(join(actdata, interval_median), interval)
+
+# Where there is an NA put the median value of that interval
+impute_data$steps[is.na(impute_data$steps)] <- impute_data$median_steps[is.na(impute_data$steps)]
+
+summary(impute_data)
+```
+
+Make a graph of the total number of steps taken each day and calculate and report the mean and median total number of steps taken per day.
+
+```{r cache=TRUE ,fig.height=6, fig.width=14}
+impute_day_steps<- ddply(impute_data, .(date_new), summarise, steps=sum(steps))
+ggplot(impute_day_steps,aes(as.Date(date_new),steps))+
+        scale_x_date(name="Date", breaks = date_breaks("day"))+
+        geom_bar(stat='identity')+
+        ggtitle("The total number of steps taken each day")+
+        xlab("Sum of steps per day")+
+        theme_bw()+
+        theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
+
+The mean and median are after the imputing:
+```{r cache=TRUE}
+
+mean(impute_day_steps$steps)
+median(impute_day_steps$steps)
+```
 
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+In this section we will use the imputed data have been created in the previous step. In the following graph it is observed that there is a difference between the weekdays and weekend in the wolking activity.
+
+```{r}
+# Summarise average steps across weekdays and weekends
+day_type_imputed<- ddply(impute_data, .(interval, date_type), summarise, steps=mean(steps))
+ggplot(day_type_imputed,aes(interval,steps))+
+        geom_line()+
+        facet_wrap(~date_type,nrow=2)+
+        ggtitle("Daily Activity Pattern for weekends and weekdays seperately")+
+        xlab("5-minute interval")+
+        ylab("The average number of steps")+
+        theme_bw()
+```
